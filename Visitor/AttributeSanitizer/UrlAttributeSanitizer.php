@@ -46,7 +46,40 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
             return self::sanitizeSrcset($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
         }
 
+        if (\in_array($attribute, ['ping', 'archive'], true)) {
+            return self::sanitizeUrlList($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
+        }
+
         return UrlSanitizer::sanitize($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
+    }
+
+    /**
+     * Sanitizes a space-separated list of URLs, such as the ones of the ping
+     * and archive attributes: each URL is parsed independently by the browser,
+     * so each one has to pass the scheme, host and relative URL policy on its own.
+     *
+     * URLs that don't pass the policy are dropped from the list; the attribute
+     * itself is dropped when no URL is left, as an empty list would be invalid anyway.
+     *
+     * @see https://html.spec.whatwg.org/multipage/links.html#ping
+     */
+    private static function sanitizeUrlList(string $value, ?array $allowedSchemes, bool $forceHttps, ?array $allowedHosts, bool $allowRelative): ?string
+    {
+        $urls = [];
+
+        foreach (preg_split('/[ \t\n\f\r]+/', $value) as $url) {
+            if ('' === $url) {
+                continue;
+            }
+
+            if (null === $url = UrlSanitizer::sanitize($url, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)) {
+                continue;
+            }
+
+            $urls[] = $url;
+        }
+
+        return $urls ? implode(' ', $urls) : null;
     }
 
     /**

@@ -1183,6 +1183,79 @@ class HtmlSanitizerCustomTest extends TestCase
         return (new HtmlSanitizer($config))->sanitize($input);
     }
 
+    #[DataProvider('provideSpaceSeparatedUrlListAttributes')]
+    public function testSpaceSeparatedUrlListAttributesSanitizeEveryUrl(string $element, string $attribute)
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement($element, [$attribute])
+            ->allowLinkHosts(['trusted.com'])
+            ->allowMediaHosts(['trusted.com'])
+            ->forceHttpsUrls()
+        ;
+
+        // Every URL is checked against the host policy, including the ones after a space
+        $this->assertSame(
+            "<$element $attribute=\"https://trusted.com/a\">x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"https://trusted.com/a https://evil.example/b\">x</$element>")
+        );
+
+        // A valid URL keeps the attribute even when preceded by an invalid one
+        $this->assertSame(
+            "<$element $attribute=\"https://trusted.com/a\">x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"https://evil.example/b https://trusted.com/a\">x</$element>")
+        );
+
+        // The whole attribute is dropped when every URL is invalid
+        $this->assertSame(
+            "<$element>x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"https://evil.example/a https://evil.example/b\">x</$element>")
+        );
+
+        // The scheme policy applies to every URL as well
+        $this->assertSame(
+            "<$element $attribute=\"https://trusted.com/a\">x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"javascript:alert(1) https://trusted.com/a\">x</$element>")
+        );
+
+        // Whitespace runs are collapsed, and force-https is applied per URL
+        $this->assertSame(
+            "<$element $attribute=\"https://trusted.com/a https://trusted.com/b\">x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"  http://trusted.com/a   http://trusted.com/b  \">x</$element>")
+        );
+
+        // A single URL keeps behaving like any other URL attribute
+        $this->assertSame(
+            "<$element $attribute=\"https://trusted.com/a\">x</$element>",
+            $this->sanitize($config, "<$element $attribute=\"http://trusted.com/a\">x</$element>")
+        );
+    }
+
+    public static function provideSpaceSeparatedUrlListAttributes(): iterable
+    {
+        yield 'ping on anchors' => ['a', 'ping'];
+        yield 'archive on applets' => ['applet', 'archive'];
+    }
+
+    public function testRelativeUrlsInSpaceSeparatedUrlListAreControlledByPolicy()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['ping'])
+            ->allowLinkHosts(['trusted.com'])
+            ->forceHttpsUrls()
+        ;
+
+        // Relative URLs are rejected unless explicitly allowed
+        $this->assertSame(
+            '<a ping="https://trusted.com/a">x</a>',
+            $this->sanitize($config, '<a ping="/relative https://trusted.com/a">x</a>')
+        );
+
+        $this->assertSame(
+            '<a ping="/relative /other">x</a>',
+            $this->sanitize($config->allowRelativeLinks(), '<a ping="/relative /other">x</a>')
+        );
+    }
+
     public function testAllowRelativeLinksRejectsColonInFirstPathSegment()
     {
         $config = (new HtmlSanitizerConfig())
