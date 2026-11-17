@@ -36,6 +36,11 @@ interface AttributeSanitizerInterface
 
     /**
      * Returns the sanitized value of a given attribute for the given element.
+     *
+     * Returning null removes the attribute while keeping the element and its
+     * children. Sanitizers that need to remove the whole element or to expose an
+     * explainable decision should implement {@see ExplainableAttributeSanitizerInterface},
+     * optionally by extending {@see AbstractAttributeSanitizer}.
      */
     public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string;
 }

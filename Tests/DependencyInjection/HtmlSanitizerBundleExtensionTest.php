@@ -21,6 +21,7 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerAction;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerBundle;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerInterface;
+use Symfony\Component\HtmlSanitizer\RejectedUrlPolicy;
 
 class HtmlSanitizerBundleExtensionTest extends TestCase
 {
@@ -36,7 +37,7 @@ class HtmlSanitizerBundleExtensionTest extends TestCase
         // config
         $this->assertTrue($container->hasDefinition('html_sanitizer.config.custom'));
         $this->assertSame(HtmlSanitizerConfig::class, $container->getDefinition('html_sanitizer.config.custom')->getClass());
-        $this->assertCount(24, $calls = $container->getDefinition('html_sanitizer.config.custom')->getMethodCalls());
+        $this->assertCount(25, $calls = $container->getDefinition('html_sanitizer.config.custom')->getMethodCalls());
         $this->assertSame(
             [
                 ['defaultAction', [HtmlSanitizerAction::Allow], true],
@@ -55,6 +56,7 @@ class HtmlSanitizerBundleExtensionTest extends TestCase
                 ['forceAttribute', ['a', 'rel', 'noopener noreferrer'], true],
                 ['forceAttribute', ['h1', 'class', 'bp4-heading'], true],
                 ['forceHttpsUrls', [true], true],
+                ['rejectUrls', [RejectedUrlPolicy::DropElement], true],
                 ['allowLinkSchemes', [['http', 'https', 'mailto']], true],
                 ['allowLinkHosts', [['symfony.com']], true],
                 ['allowRelativeLinks', [true], true],

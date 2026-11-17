@@ -48,8 +48,21 @@ final class UrlSanitizer
      */
     public static function sanitize(?string $input, ?array $allowedSchemes = null, bool $forceHttps = false, ?array $allowedHosts = null, bool $allowRelative = false): ?string
     {
+        return self::decide($input, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)->getSanitizedUrl();
+    }
+
+    /**
+     * Takes an explainable text-layer decision on a given URL string.
+     *
+     * The decision only judges the URL itself against the scheme, host and
+     * relative-URL policy; it never considers the element or attribute that
+     * embeds it. Attribute-layer sanitizers can compose it with their own
+     * policy to decide what to do with the surrounding markup.
+     */
+    public static function decide(?string $input, ?array $allowedSchemes = null, bool $forceHttps = false, ?array $allowedHosts = null, bool $allowRelative = false): UrlDecision
+    {
         if (!$input) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::Malformed);
         }
 
         // Schemes that browsers parse per WHATWG, where the authority is optional
@@ -59,24 +72,46 @@ final class UrlSanitizer
         // for scheme-relative URLs: "///host" is a path for RFC 3986 but an
         // authority for browsers.
         if (false !== strpbrk($input, '\\') || preg_match('~^(?:https?|ftp|wss?):(?!//[^/])|^///~i', $input)) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::InvalidStructure);
+        }
+
+        // Denied characters are reported separately from generic parse errors so
+        // that consumers can tell a visual-spoofing attempt from a malformed URL.
+        if (self::containsDeniedCharacters($input)) {
+            return UrlDecision::reject(UrlRejectionReason::DeniedCharacter);
         }
 
         $url = self::parse($input);
 
         // Malformed URL
         if (!$url || !\is_array($url)) {
-            return null;
+            // parse() also fails on denied characters hidden behind percent-encoding;
+            // parse the raw components once more to distinguish that case from a
+            // generic syntax error so the rejection reason stays explainable.
+            try {
+                $components = UriString::parse($input);
+                if (isset($components['scheme'])) {
+                    $components['scheme'] = strtolower($components['scheme']);
+                }
+
+                if (self::containsEncodedDeniedCharacters($components)) {
+                    return UrlDecision::reject(UrlRejectionReason::DeniedCharacter);
+                }
+            } catch (SyntaxError) {
+                // The URL is genuinely malformed rather than carrying denied characters
+            }
+
+            return UrlDecision::reject(UrlRejectionReason::Malformed);
         }
 
         // No scheme and relative not allowed
         if (!$allowRelative && !$url['scheme']) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::RelativeNotAllowed);
         }
 
         // Forbidden scheme
         if ($url['scheme'] && null !== $allowedSchemes && !\in_array($url['scheme'], $allowedSchemes, true)) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::SchemeNotAllowed);
         }
 
         // A view-source URL wraps another URL, which has to pass the same checks;
@@ -84,11 +119,17 @@ final class UrlSanitizer
         if ('view-source' === $url['scheme']) {
             $nested = substr($input, \strlen('view-source:'));
 
-            if (0 === strncasecmp($nested, 'view-source:', 12) || null === $nested = self::sanitize($nested, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)) {
-                return null;
+            if (0 === strncasecmp($nested, 'view-source:', 12)) {
+                return UrlDecision::reject(UrlRejectionReason::InvalidStructure);
             }
 
-            return 'view-source:'.$nested;
+            $nestedDecision = self::decide($nested, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative);
+
+            if (!$nestedDecision->isAccepted()) {
+                return $nestedDecision;
+            }
+
+            return UrlDecision::accept('view-source:'.$nestedDecision->getSanitizedUrl());
         }
 
         // If the scheme used is not supposed to have a host, do not check the host
@@ -97,17 +138,17 @@ final class UrlSanitizer
             // around it changes the number of slashes in front of the path, which
             // browsers would then read as an authority
             if ('' === $url['host']) {
-                return null;
+                return UrlDecision::reject(UrlRejectionReason::InvalidStructure);
             }
 
             // No host and relative not allowed; "0" is a host, not a missing one
             if (!$allowRelative && null === $url['host']) {
-                return null;
+                return UrlDecision::reject(UrlRejectionReason::RelativeNotAllowed);
             }
 
             // Forbidden host
             if (null !== $url['host'] && null !== $allowedHosts && !self::isAllowedHost($url['host'], $allowedHosts)) {
-                return null;
+                return UrlDecision::reject(UrlRejectionReason::HostNotAllowed);
             }
         }
 
@@ -120,13 +161,13 @@ final class UrlSanitizer
         // first path segment, which would otherwise be read as a scheme. league/uri
         // enforces this in UriString::build(), but only since version 7.
         if (!$url['scheme'] && null === $url['host'] && preg_match('#^[^/:]*+:#', $url['path'])) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::InvalidStructure);
         }
 
         try {
-            return UriString::build($url);
+            return UrlDecision::accept(UriString::build($url));
         } catch (SyntaxError) {
-            return null;
+            return UrlDecision::reject(UrlRejectionReason::Malformed);
         }
     }
 
@@ -155,7 +196,7 @@ final class UrlSanitizer
             // whitespace: they have no legitimate place in a URL and enable
             // visual spoofing of the rendered href when the URL is later
             // embedded in HTML or decoded by a downstream consumer.
-            if (preg_match(self::DENIED_CHARS_PATTERN, $url)) {
+            if (self::containsDeniedCharacters($url)) {
                 return null;
             }
 
@@ -196,32 +237,57 @@ final class UrlSanitizer
                 return null;
             }
 
-            // Reject denied characters reachable via percent-encoding in any
-            // component; otherwise the upfront check is bypassed by encoding.
-            // Percent-encoded line breaks and tabs are legitimate in the query
-            // and fragment of hostless schemes: RFC 6068 requires %0D%0A for
-            // line breaks in the body of a mailto URL.
-            $isHostless = self::isHostlessScheme($parsedUrl['scheme']);
-            foreach (['user', 'pass', 'host', 'path', 'query', 'fragment'] as $part) {
-                if (!isset($parsedUrl[$part])) {
-                    continue;
-                }
-
-                $decoded = rawurldecode($parsedUrl[$part]);
-
-                if ($isHostless && ('query' === $part || 'fragment' === $part)) {
-                    $decoded = str_replace(["\r", "\n", "\t"], '', $decoded);
-                }
-
-                if (preg_match(self::DENIED_CHARS_PATTERN, $decoded)) {
-                    return null;
-                }
+            if (self::containsEncodedDeniedCharacters($parsedUrl)) {
+                return null;
             }
 
             return $parsedUrl;
         } catch (SyntaxError) {
             return null;
         }
+    }
+
+    /**
+     * Checks a raw URL string for denied characters (BiDi formatting marks,
+     * non-space whitespace, byte order mark, ...).
+     */
+    public static function containsDeniedCharacters(string $url): bool
+    {
+        return (bool) preg_match(self::DENIED_CHARS_PATTERN, $url);
+    }
+
+    /**
+     * Checks the components of a parsed URL for denied characters reachable
+     * through percent-encoding; otherwise the upfront raw check could be
+     * bypassed by encoding them.
+     *
+     * Percent-encoded line breaks and tabs are legitimate in the query and
+     * fragment of hostless schemes: RFC 6068 requires %0D%0A for line breaks
+     * in the body of a mailto URL.
+     *
+     * @param array<string, mixed> $parsedUrl
+     */
+    public static function containsEncodedDeniedCharacters(array $parsedUrl): bool
+    {
+        $isHostless = self::isHostlessScheme($parsedUrl['scheme'] ?? null);
+
+        foreach (['user', 'pass', 'host', 'path', 'query', 'fragment'] as $part) {
+            if (!isset($parsedUrl[$part])) {
+                continue;
+            }
+
+            $decoded = rawurldecode($parsedUrl[$part]);
+
+            if ($isHostless && ('query' === $part || 'fragment' === $part)) {
+                $decoded = str_replace(["\r", "\n", "\t"], '', $decoded);
+            }
+
+            if (preg_match(self::DENIED_CHARS_PATTERN, $decoded)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function isHostlessScheme(?string $scheme): bool

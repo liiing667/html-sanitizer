@@ -113,6 +113,11 @@ class HtmlSanitizerBundle extends AbstractBundle
                                 ->info('Transforms URLs using the HTTP scheme to use the HTTPS scheme instead.')
                                 ->defaultFalse()
                             ->end()
+                            ->enumNode('reject_urls')
+                                ->resolvesAtCompileTime()
+                                ->info('Declares what to do when a URL attribute fails the URL policy: "remove_attribute" keeps the element and its text without the URL attribute (the default), "drop_element" removes the whole element including its children.')
+                                ->values(['remove_attribute', 'drop_element'])
+                            ->end()
                             ->arrayNode('allowed_link_schemes', 'allowed_link_scheme')
                                 ->info('Allows only a given list of schemes to be used in links href attributes.')
                                 ->acceptAndWrap(['string'])
@@ -223,6 +228,9 @@ class HtmlSanitizerBundle extends AbstractBundle
 
             // Settings
             $def->addMethodCall('forceHttpsUrls', [$sanitizerConfig['force_https_urls']], true);
+            if (isset($sanitizerConfig['reject_urls'])) {
+                $def->addMethodCall('rejectUrls', [RejectedUrlPolicy::from($sanitizerConfig['reject_urls'])], true);
+            }
             if ($sanitizerConfig['allowed_link_schemes']) {
                 $def->addMethodCall('allowLinkSchemes', [$sanitizerConfig['allowed_link_schemes']], true);
             }

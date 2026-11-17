@@ -93,6 +93,12 @@ class HtmlSanitizerConfig
     private bool $forceHttpsUrls = false;
 
     /**
+     * What to do when a URL attribute fails the URL policy. By default the attribute
+     * is removed while the element and its visible text are retained.
+     */
+    private RejectedUrlPolicy $rejectedUrlPolicy = RejectedUrlPolicy::RemoveAttribute;
+
+    /**
      * Sanitizers that should be applied to specific attributes in addition to standard sanitization.
      *
      * @var list<AttributeSanitizerInterface>
@@ -262,6 +268,25 @@ class HtmlSanitizerConfig
     {
         $clone = clone $this;
         $clone->forceHttpsUrls = $forceHttpsUrls;
+
+        return $clone;
+    }
+
+    /**
+     * Declares what the sanitizer should do when a URL attribute fails the URL policy
+     * (forbidden scheme or host, disallowed relative URL, malformed value, ...).
+     *
+     * By default, the offending attribute is removed but the element and its
+     * children, including the visible link text, are retained
+     * ({@see RejectedUrlPolicy::RemoveAttribute}). Passing
+     * {@see RejectedUrlPolicy::DropElement} removes the whole element instead,
+     * which prevents a rejected link from leaving behind a text that spoofs the
+     * destination it claimed to point to.
+     */
+    public function rejectUrls(RejectedUrlPolicy $policy): static
+    {
+        $clone = clone $this;
+        $clone->rejectedUrlPolicy = $policy;
 
         return $clone;
     }
@@ -538,6 +563,11 @@ class HtmlSanitizerConfig
     public function getForceHttpsUrls(): bool
     {
         return $this->forceHttpsUrls;
+    }
+
+    public function getRejectedUrlPolicy(): RejectedUrlPolicy
+    {
+        return $this->rejectedUrlPolicy;
     }
 
     /**

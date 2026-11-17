@@ -12,12 +12,15 @@
 namespace Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer;
 
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
+use Symfony\Component\HtmlSanitizer\RejectedUrlPolicy;
+use Symfony\Component\HtmlSanitizer\TextSanitizer\UrlDecision;
+use Symfony\Component\HtmlSanitizer\TextSanitizer\UrlRejectionReason;
 use Symfony\Component\HtmlSanitizer\TextSanitizer\UrlSanitizer;
 
 /**
  * @author Titouan Galopin <galopintitouan@gmail.com>
  */
-final class UrlAttributeSanitizer implements AttributeSanitizerInterface
+final class UrlAttributeSanitizer extends AbstractAttributeSanitizer
 {
     public function getSupportedElements(): ?array
     {
@@ -32,6 +35,11 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
 
     public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string
     {
+        return $this->decideAttribute($element, $attribute, $value, $config)->getSanitizedValue();
+    }
+
+    public function decideAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): AttributeDecision
+    {
         if (\in_array($element, ['a', 'area'], true) || \in_array($attribute, ['action', 'formaction', 'cite'], true)) {
             $allowedSchemes = $config->getAllowedLinkSchemes();
             $allowedHosts = $config->getAllowedLinkHosts();
@@ -43,10 +51,18 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
         }
 
         if (\in_array($attribute, ['srcset', 'imagesrcset'], true)) {
-            return self::sanitizeSrcset($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
+            $decision = self::sanitizeSrcset($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
+        } else {
+            $decision = UrlSanitizer::decide($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
         }
 
-        return UrlSanitizer::sanitize($value, $allowedSchemes, $config->getForceHttpsUrls(), $allowedHosts, $allowRelative);
+        if ($decision->isAccepted()) {
+            return AttributeDecision::keep($decision->getSanitizedUrl());
+        }
+
+        return RejectedUrlPolicy::DropElement === $config->getRejectedUrlPolicy()
+            ? AttributeDecision::dropElement($decision->getReason())
+            : AttributeDecision::removeAttribute($decision->getReason());
     }
 
     /**
@@ -58,11 +74,12 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
      *
      * @see https://html.spec.whatwg.org/multipage/images.html#parsing-a-srcset-attribute
      */
-    private static function sanitizeSrcset(string $value, ?array $allowedSchemes, bool $forceHttps, ?array $allowedHosts, bool $allowRelative): ?string
+    private static function sanitizeSrcset(string $value, ?array $allowedSchemes, bool $forceHttps, ?array $allowedHosts, bool $allowRelative): UrlDecision
     {
         $candidates = [];
         $length = \strlen($value);
         $position = 0;
+        $rejection = null;
 
         while ($position < $length) {
             $position += strspn($value, " \t\n\f\r,", $position);
@@ -83,14 +100,20 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
                 $descriptors = self::consumeSrcsetDescriptors($value, $position, $length);
             }
 
-            if (null === $url = UrlSanitizer::sanitize($url, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)) {
+            $decision = UrlSanitizer::decide($url, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative);
+
+            if (!$decision->isAccepted()) {
+                $rejection ??= $decision;
                 continue;
             }
+            $url = $decision->getSanitizedUrl();
 
             $candidates[] = '' === $descriptors ? $url : $url.' '.$descriptors;
         }
 
-        return $candidates ? implode(', ', $candidates) : null;
+        return $candidates
+            ? UrlDecision::accept(implode(', ', $candidates))
+            : ($rejection ?? UrlDecision::reject(UrlRejectionReason::Malformed));
     }
 
     /**

@@ -17,7 +17,13 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use Symfony\Component\HtmlSanitizer\Parser\NativeParser;
 use Symfony\Component\HtmlSanitizer\Parser\ParserInterface;
+use Symfony\Component\HtmlSanitizer\RejectedUrlPolicy;
+use Symfony\Component\HtmlSanitizer\TextSanitizer\UrlRejectionReason;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AbstractAttributeSanitizer;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeAction;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeDecision;
 use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeSanitizerInterface;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\UrlAttributeSanitizer;
 
 class HtmlSanitizerCustomTest extends TestCase
 {
@@ -1200,6 +1206,163 @@ class HtmlSanitizerCustomTest extends TestCase
         $this->assertSame(
             '<a href="./:link.php">Hello world</a>',
             $this->sanitize($config, '<a href="./:link.php">Hello world</a>')
+        );
+    }
+
+    public function testRejectedUrlDefaultsToRemovingTheAttributeAndKeepingTheLinkText()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['href'])
+        ;
+
+        $this->assertSame(
+            RejectedUrlPolicy::RemoveAttribute,
+            $config->getRejectedUrlPolicy()
+        );
+
+        $this->assertSame(
+            '<a>https://trusted.example/login</a>',
+            $this->sanitize($config, '<a href="javascript:alert(1)">https://trusted.example/login</a>')
+        );
+    }
+
+    public function testRejectUrlsDropElementRemovesTheWholeLinkIncludingItsText()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('p')
+            ->allowElement('a', ['href'])
+            ->allowElement('strong')
+            ->rejectUrls(RejectedUrlPolicy::DropElement)
+        ;
+
+        $input = '<p>Before <a href="javascript:alert(1)"><strong>https://trusted.example/login</strong></a> after</p>';
+
+        $this->assertSame(
+            '<p>Before  after</p>',
+            $this->sanitize($config, $input)
+        );
+    }
+
+    public function testRejectUrlsDropElementKeptLinksAreUnaffected()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['href'])
+            ->rejectUrls(RejectedUrlPolicy::DropElement)
+        ;
+
+        $this->assertSame(
+            '<a href="https://trusted.example/">Safe</a>',
+            $this->sanitize($config, '<a href="https://trusted.example/">Safe</a>')
+        );
+    }
+
+    public function testRejectUrlsDropElementAppliesToMediaElementsAndSrcset()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('p')
+            ->allowElement('img', ['src', 'srcset'])
+            ->rejectUrls(RejectedUrlPolicy::DropElement)
+        ;
+
+        $this->assertSame(
+            '<p>xy</p>',
+            $this->sanitize($config, '<p>x<img src="javascript:alert(1)" />y</p>')
+        );
+
+        $this->assertSame(
+            '<p>xy</p>',
+            $this->sanitize($config, '<p>x<img srcset="javascript:alert(1) 1x" />y</p>')
+        );
+
+        $this->assertSame(
+            '<p>x<img srcset="https://trusted.example/logo.png 1x" />y</p>',
+            $this->sanitize($config, '<p>x<img srcset="https://trusted.example/logo.png 1x" />y</p>')
+        );
+    }
+
+    public function testUrlAttributeSanitizerExposesAnExplainableDecision()
+    {
+        $config = (new HtmlSanitizerConfig())->allowElement('a', ['href']);
+        $sanitizer = new UrlAttributeSanitizer();
+
+        $rejected = $sanitizer->decideAttribute('a', 'href', 'javascript:alert(1)', $config);
+        $this->assertSame(AttributeAction::RemoveAttribute, $rejected->getAction());
+        $this->assertSame(UrlRejectionReason::SchemeNotAllowed, $rejected->getReason());
+        $this->assertNull($rejected->getSanitizedValue());
+
+        $accepted = $sanitizer->decideAttribute('a', 'href', 'https://trusted.example/', $config);
+        $this->assertSame(AttributeAction::KeepElement, $accepted->getAction());
+        $this->assertNull($accepted->getReason());
+        $this->assertSame('https://trusted.example/', $accepted->getSanitizedValue());
+
+        $dropConfig = $config->rejectUrls(RejectedUrlPolicy::DropElement);
+        $dropped = $sanitizer->decideAttribute('a', 'href', 'https://untrusted.example/', $dropConfig->allowLinkHosts(['trusted.example']));
+        $this->assertSame(AttributeAction::DropElement, $dropped->getAction());
+        $this->assertSame(UrlRejectionReason::HostNotAllowed, $dropped->getReason());
+    }
+
+    public function testCustomExplainableAttributeSanitizerCanDropTheElement()
+    {
+        $sanitizer = new class extends AbstractAttributeSanitizer {
+            public function getSupportedElements(): ?array
+            {
+                return ['a'];
+            }
+
+            public function getSupportedAttributes(): ?array
+            {
+                return ['href'];
+            }
+
+            public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string
+            {
+                return null;
+            }
+
+            public function decideAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): AttributeDecision
+            {
+                return AttributeDecision::dropElement(UrlRejectionReason::SchemeNotAllowed);
+            }
+        };
+
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['href'])
+            ->withAttributeSanitizer($sanitizer)
+        ;
+
+        $this->assertSame(
+            'after',
+            $this->sanitize($config, '<a href="https://trusted.example/">spoof text</a>after')
+        );
+    }
+
+    public function testLegacyAttributeSanitizerWithoutDecisionMethodKeepsWorking()
+    {
+        $sanitizer = new class implements AttributeSanitizerInterface {
+            public function getSupportedElements(): ?array
+            {
+                return ['a'];
+            }
+
+            public function getSupportedAttributes(): ?array
+            {
+                return ['href'];
+            }
+
+            public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string
+            {
+                return null;
+            }
+        };
+
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['href'])
+            ->withAttributeSanitizer($sanitizer)
+        ;
+
+        $this->assertSame(
+            '<a>visible text</a>',
+            $this->sanitize($config, '<a href="https://trusted.example/">visible text</a>')
         );
     }
 }

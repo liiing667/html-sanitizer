@@ -4,6 +4,8 @@ CHANGELOG
 8.2
 ---
 
+ * Add `HtmlSanitizerConfig::rejectUrls()` and the `RejectedUrlPolicy` enum to explicitly remove the whole element (including its link text) when a URL attribute fails the URL policy, instead of only removing the attribute while keeping the element and its visible text
+ * Add explainable, composable URL decisions: `UrlSanitizer::decide()` returns a `UrlDecision` carrying a `UrlRejectionReason`, and attribute sanitizers can implement `ExplainableAttributeSanitizerInterface::decideAttribute()` to return an `AttributeDecision` able to keep the element, remove the attribute or drop the element
  * Resolve env vars at compile time in bundle options used to build the container
  * Add `HtmlSanitizerBundle`, which provides the `html_sanitizer` configuration and the services previously provided by `FrameworkBundle` under `framework.html_sanitizer`
 

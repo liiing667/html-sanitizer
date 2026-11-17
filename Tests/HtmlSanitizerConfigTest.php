@@ -13,6 +13,7 @@ namespace Symfony\Component\HtmlSanitizer\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
+use Symfony\Component\HtmlSanitizer\RejectedUrlPolicy;
 use Symfony\Component\HtmlSanitizer\Reference\W3CReference;
 use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeSanitizerInterface;
 
@@ -28,6 +29,18 @@ class HtmlSanitizerConfigTest extends TestCase
         $this->assertSame(['http', 'https', 'data'], $config->getAllowedMediaSchemes());
         $this->assertNull($config->getAllowedMediaHosts());
         $this->assertFalse($config->getForceHttpsUrls());
+        $this->assertSame(RejectedUrlPolicy::RemoveAttribute, $config->getRejectedUrlPolicy());
+    }
+
+    public function testRejectUrlsIsImmutable()
+    {
+        $config = new HtmlSanitizerConfig();
+
+        $dropConfig = $config->rejectUrls(RejectedUrlPolicy::DropElement);
+
+        $this->assertNotSame($config, $dropConfig);
+        $this->assertSame(RejectedUrlPolicy::RemoveAttribute, $config->getRejectedUrlPolicy());
+        $this->assertSame(RejectedUrlPolicy::DropElement, $dropConfig->getRejectedUrlPolicy());
     }
 
     public function testSimpleOptions()

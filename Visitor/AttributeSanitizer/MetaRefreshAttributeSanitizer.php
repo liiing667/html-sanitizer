@@ -26,7 +26,7 @@ use Symfony\Component\HtmlSanitizer\TextSanitizer\UrlSanitizer;
  * keywords, generator…), which is passed through unchanged as long as it cannot be read
  * as a refresh directive by a browser.
  */
-final class MetaRefreshAttributeSanitizer implements AttributeSanitizerInterface
+final class MetaRefreshAttributeSanitizer extends AbstractAttributeSanitizer
 {
     public function getSupportedElements(): ?array
     {
@@ -110,4 +110,5 @@ final class MetaRefreshAttributeSanitizer implements AttributeSanitizerInterface
 
         return $time.$separator.$keyword.$quote.$sanitized.$quote.$trailing;
     }
+
 }

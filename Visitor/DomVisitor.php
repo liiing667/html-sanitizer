@@ -14,7 +14,10 @@ namespace Symfony\Component\HtmlSanitizer\Visitor;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerAction;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use Symfony\Component\HtmlSanitizer\TextSanitizer\StringSanitizer;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeAction;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeDecision;
 use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\AttributeSanitizerInterface;
+use Symfony\Component\HtmlSanitizer\Visitor\AttributeSanitizer\ExplainableAttributeSanitizerInterface;
 use Symfony\Component\HtmlSanitizer\Visitor\Model\Cursor;
 use Symfony\Component\HtmlSanitizer\Visitor\Node\BlockedNode;
 use Symfony\Component\HtmlSanitizer\Visitor\Node\DocumentNode;
@@ -125,7 +128,13 @@ final class DomVisitor
 
         // Otherwise create the node
         $node = new Node($cursor->node, $domNodeName);
-        $this->setAttributes($domNodeName, $domNode, $node, $allowedAttributes);
+
+        // An attribute sanitizer can decide the whole element must be removed,
+        // in which case neither the node, its forced attributes nor its children
+        // are visited.
+        if (!$this->setAttributes($domNodeName, $domNode, $node, $allowedAttributes)) {
+            return false;
+        }
 
         // Force configured attributes
         foreach ($this->forcedAttributes[$domNodeName] ?? [] as $attribute => $value) {
@@ -156,12 +165,15 @@ final class DomVisitor
 
     /**
      * Set attributes from a DOM node to a sanitized node.
+     *
+     * Returns false when an attribute-layer decision requires the whole element
+     * to be dropped, true otherwise.
      */
-    private function setAttributes(string $domNodeName, \Dom\Node|\DOMNode $domNode, Node $node, array $allowedAttributes = []): void
+    private function setAttributes(string $domNodeName, \Dom\Node|\DOMNode $domNode, Node $node, array $allowedAttributes = []): bool
     {
         /** @var iterable<\Dom\Attr|\DOMAttr> $domAttributes */
         if (!$domAttributes = $domNode->attributes?->getIterator()) {
-            return;
+            return true;
         }
 
         foreach ($domAttributes as $attribute) {
@@ -179,14 +191,39 @@ final class DomVisitor
                 );
 
                 foreach ($attributeSanitizers as $sanitizer) {
-                    if (null === $sanitizedValue = $sanitizer->sanitizeAttribute($domNodeName, $name, $value, $this->config)) {
+                    $decision = $this->decideAttribute($sanitizer, $domNodeName, $name, $value);
+
+                    if (AttributeAction::DropElement === $decision->getAction()) {
+                        return false;
+                    }
+
+                    if (AttributeAction::RemoveAttribute === $decision->getAction()) {
                         continue 2;
                     }
-                    $value = $sanitizedValue;
+
+                    $value = $decision->getSanitizedValue();
                 }
 
                 $node->setAttribute($name, $value);
             }
         }
+
+        return true;
+    }
+
+    /**
+     * Calls the explainable decision method when available and falls back to
+     * the legacy sanitizeAttribute() contract for sanitizers that only
+     * implement the interface method.
+     */
+    private function decideAttribute(AttributeSanitizerInterface $sanitizer, string $element, string $attribute, string $value): AttributeDecision
+    {
+        if ($sanitizer instanceof ExplainableAttributeSanitizerInterface) {
+            return $sanitizer->decideAttribute($element, $attribute, $value, $this->config);
+        }
+
+        return AttributeDecision::fromLegacyResult(
+            $sanitizer->sanitizeAttribute($element, $attribute, $value, $this->config)
+        );
     }
 }

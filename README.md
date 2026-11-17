@@ -10,6 +10,7 @@ Usage
 ```php
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
+use Symfony\Component\HtmlSanitizer\RejectedUrlPolicy;
 
 // By default, an element not added to the allowed or blocked elements
 // will be dropped, including its children
@@ -61,6 +62,12 @@ $config = (new HtmlSanitizerConfig())
 
     // Transform all HTTP schemes to HTTPS
     ->forceHttpsUrls()
+
+    // When a URL attribute fails the URL policy (forbidden scheme or host,
+    // disallowed relative URL, ...), remove the whole element including its
+    // children instead of only removing the attribute (the default keeps the
+    // element and its visible text)
+    ->rejectUrls(RejectedUrlPolicy::DropElement)
 
     // Configure which schemes are allowed in links (others will be dropped)
     ->allowLinkSchemes(['https', 'http', 'mailto'])

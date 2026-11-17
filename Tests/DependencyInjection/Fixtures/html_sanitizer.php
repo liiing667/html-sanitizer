@@ -27,6 +27,7 @@ $container->loadFromExtension('html_sanitizer', [
                 'h1' => ['class' => 'bp4-heading'],
             ],
             'force_https_urls' => true,
+            'reject_urls' => 'drop_element',
             'allowed_link_schemes' => ['http', 'https', 'mailto'],
             'allowed_link_hosts' => ['symfony.com'],
             'allow_relative_links' => true,

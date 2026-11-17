@@ -23,7 +23,7 @@ use Symfony\Component\HtmlSanitizer\TextSanitizer\StringSanitizer;
  *
  * @internal
  */
-final class LinkTargetAttributeSanitizer implements AttributeSanitizerInterface
+final class LinkTargetAttributeSanitizer extends AbstractAttributeSanitizer
 {
     public function getSupportedElements(): ?array
     {
@@ -50,4 +50,5 @@ final class LinkTargetAttributeSanitizer implements AttributeSanitizerInterface
 
         return $kept ? implode(' ', $kept) : null;
     }
+
 }
