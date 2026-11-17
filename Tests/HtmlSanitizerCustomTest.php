@@ -822,6 +822,34 @@ class HtmlSanitizerCustomTest extends TestCase
         );
     }
 
+    /**
+     * A control character embedded in a srcset URL must give the same decision the value
+     * would get in href or src: it cannot be silently turned into a space by the tokenizer.
+     */
+    public function testSrcsetControlCharactersInUrlAreDroppedLikeOtherNavigationAttributes()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('img', ['src', 'srcset'])
+            ->allowMediaHosts(['trusted.com'])
+            ->allowRelativeMedias()
+        ;
+
+        foreach (["java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)", "java\fscript:alert(1)"] as $url) {
+            $this->assertSame('<img />', $this->sanitize($config, '<img src="'.$url.'">'));
+            $this->assertSame('<img />', $this->sanitize($config, '<img srcset="'.$url.' 1x">'));
+        }
+
+        // Leading whitespace before the first candidate is part of the URL and rejected too
+        $this->assertSame(
+            '<img />',
+            $this->sanitize($config, '<img srcset=" /relative/path 1x">')
+        );
+        $this->assertSame(
+            '<img srcset="/relative/path 1x" />',
+            $this->sanitize($config, '<img srcset="/relative/path 1x">')
+        );
+    }
+
     public function testForceHttpsUrlsInSrcset()
     {
         $config = (new HtmlSanitizerConfig())
@@ -1024,6 +1052,32 @@ class HtmlSanitizerCustomTest extends TestCase
         $this->assertSame(
             '<meta http-equiv="refresh" content="5" />',
             (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="5">')
+        );
+    }
+
+    /**
+     * Whitespace between the "url=" keyword and the URL is part of the URL, so a leading
+     * space value that href or src rejects cannot survive only in a refresh directive.
+     */
+    public function testMetaRefreshLeadingUrlWhitespaceIsDroppedLikeOtherNavigationAttributes()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('meta', ['http-equiv', 'content'])
+            ->allowStaticElements()
+            ->allowLinkHosts(['trusted.example'])
+            ->allowRelativeLinks()
+        ;
+
+        foreach (['0;url= /relative/path', "0;url=\thttps://trusted.example/x", '0;url=  /relative/path'] as $content) {
+            $this->assertSame(
+                '<meta http-equiv="refresh" />',
+                (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="'.$content.'">')
+            );
+        }
+
+        $this->assertSame(
+            '<meta http-equiv="refresh" content="0;url&#61;/relative/path" />',
+            (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="0;url=/relative/path">')
         );
     }
 

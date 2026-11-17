@@ -65,15 +65,23 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
         $position = 0;
 
         while ($position < $length) {
+            $candidateStart = $position;
             $position += strspn($value, " \t\n\f\r,", $position);
 
             if ($position >= $length) {
                 break;
             }
 
-            $urlLength = strcspn($value, " \t\n\f\r", $position);
-            $url = substr($value, $position, $urlLength);
-            $position += $urlLength;
+            // Whitespace following a candidate-separating comma is the ordinary srcset
+            // separator and is skipped per the specification. Only whitespace present at
+            // the very start of the value (or before any comma) can carry a value that the
+            // other navigation attributes would reject, so it is re-attached in that case.
+            $reattachLeadingWhitespace = 0 === $candidateStart && $position > $candidateStart;
+
+            $urlStart = $position;
+            $boundaryPosition = $position + strcspn($value, " \t\n\f\r", $position);
+            $url = substr($value, $urlStart, $boundaryPosition - $urlStart);
+            $position = $boundaryPosition;
 
             // An URL may contain commas, so only trailing ones separate candidates
             if (str_ends_with($url, ',')) {
@@ -83,14 +91,42 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
                 $descriptors = self::consumeSrcsetDescriptors($value, $position, $length);
             }
 
-            if (null === $url = UrlSanitizer::sanitize($url, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)) {
+            $policyUrl = self::srcsetPolicyUrl($value, $reattachLeadingWhitespace ? $candidateStart : $urlStart, $urlStart, $boundaryPosition, $url);
+
+            if (null === $sanitizedUrl = UrlSanitizer::sanitize($policyUrl, $allowedSchemes, $forceHttps, $allowedHosts, $allowRelative)) {
                 continue;
             }
 
-            $candidates[] = '' === $descriptors ? $url : $url.' '.$descriptors;
+            $candidates[] = '' === $descriptors ? $sanitizedUrl : $sanitizedUrl.' '.$descriptors;
         }
 
         return $candidates ? implode(', ', $candidates) : null;
+    }
+
+    /**
+     * Rebuilds the exact bytes the shared UrlSanitizer must evaluate for a srcset URL.
+     *
+     * The tokenizer skips leading ASCII whitespace and stops the URL at the first ASCII
+     * whitespace. Both are part of the URL in every other navigation attribute, so:
+     *   * the leading whitespace run is re-attached, making a leading-space value that
+     *     href/src reject fail here too;
+     *   * a boundary control character (tab, line feed, form feed, carriage return) is
+     *     re-attached instead of being swallowed by the descriptor channel and silently
+     *     turned into a space, so the policy rejects it as it would for href/src.
+     * A plain ASCII space at the boundary is omitted on purpose: browsers percent-encode
+     * it as part of the URL, a normalization the UrlSanitizer already performs.
+     */
+    private static function srcsetPolicyUrl(string $value, int $policyStart, int $urlStart, int $boundaryPosition, string $url): string
+    {
+        if ($urlStart > $policyStart) {
+            $url = substr($value, $policyStart, $urlStart - $policyStart).$url;
+        }
+
+        if (isset($value[$boundaryPosition]) && \in_array($value[$boundaryPosition], ["\t", "\n", "\f", "\r"], true)) {
+            $url .= $value[$boundaryPosition];
+        }
+
+        return $url;
     }
 
     /**

@@ -71,7 +71,9 @@ final class MetaRefreshAttributeSanitizer implements AttributeSanitizerInterface
         // An incomplete "url=" keyword is part of the URL and disables the quote handling.
         $stripQuotes = 'u' !== strtolower($url[0] ?? '');
 
-        if (preg_match('/^(url[ \t\n\f\r]*=[ \t\n\f\r]*)(.*)$/is', $url, $m)) {
+        // Whitespace after the "=" belongs to the URL, not to the keyword: it must reach
+        // the shared UrlSanitizer, which rejects a leading-space URL exactly like href/src.
+        if (preg_match('/^(url[ \t\n\f\r]*=)(.*)$/is', $url, $m)) {
             [, $keyword, $url] = $m;
             $stripQuotes = true;
         }
@@ -85,6 +87,11 @@ final class MetaRefreshAttributeSanitizer implements AttributeSanitizerInterface
                 $url = substr($url, 0, $end);
             }
         } else {
+            // Only trailing whitespace is ignored by browsers; leading whitespace stays
+            // part of the URL. The untrimmed value goes through the shared UrlSanitizer,
+            // which rejects a leading-space URL exactly like href/src do, so a value the
+            // other navigation attributes reject cannot survive in a refresh directive
+            // merely because it is prefixed with whitespace.
             $trimmed = rtrim($url, " \t\n\f\r");
             $trailing = substr($url, \strlen($trimmed));
             $url = $trimmed;
