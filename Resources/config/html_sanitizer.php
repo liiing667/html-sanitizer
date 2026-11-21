@@ -13,6 +13,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
+use Symfony\Component\HtmlSanitizer\HtmlSanitizerEvidenceInterface;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerInterface;
 
 return static function (ContainerConfigurator $container) {
@@ -26,5 +27,6 @@ return static function (ContainerConfigurator $container) {
 
         ->alias('html_sanitizer', 'html_sanitizer.sanitizer.default')
         ->alias(HtmlSanitizerInterface::class, 'html_sanitizer')
+        ->alias(HtmlSanitizerEvidenceInterface::class, 'html_sanitizer')
     ;
 };

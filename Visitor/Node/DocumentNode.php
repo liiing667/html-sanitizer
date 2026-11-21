@@ -28,6 +28,14 @@ final class DocumentNode implements NodeInterface
         return null;
     }
 
+    /**
+     * @return list<NodeInterface>
+     */
+    public function getChildren(): array
+    {
+        return $this->children;
+    }
+
     public function render(): string
     {
         $rendered = '';

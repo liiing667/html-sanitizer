@@ -56,6 +56,27 @@ final class Node implements NodeInterface
         return $this->attributes[$name] ?? null;
     }
 
+    /**
+     * @return array<string, string|null>
+     */
+    public function getAttributes(): array
+    {
+        return $this->attributes;
+    }
+
+    public function getTagName(): string
+    {
+        return $this->tagName;
+    }
+
+    /**
+     * @return list<NodeInterface>
+     */
+    public function getChildren(): array
+    {
+        return $this->children;
+    }
+
     public function setAttribute(string $name, ?string $value, bool $override = false): void
     {
         // Always use only the first declaration (ease sanitization)

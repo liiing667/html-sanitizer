@@ -34,6 +34,19 @@ final class TextNode implements NodeInterface
         return $this->parentNode;
     }
 
+    public function getText(): string
+    {
+        return $this->text;
+    }
+
+    /**
+     * @return list<NodeInterface>
+     */
+    public function getChildren(): array
+    {
+        return [];
+    }
+
     public function render(): string
     {
         return StringSanitizer::encodeHtmlEntities($this->text);

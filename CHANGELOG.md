@@ -4,6 +4,10 @@ CHANGELOG
 8.2
 ---
 
+ * Add transactional `sanitizeWithEvidence()` / `sanitizeForWithEvidence()` reports
+   containing the committed output, per-node input/output paths, policies,
+   modifications, deterministic generation hashes and exact failure locations
+ * Add cooperative cancellation and reject partial output/persisted evidence
  * Resolve env vars at compile time in bundle options used to build the container
  * Add `HtmlSanitizerBundle`, which provides the `html_sanitizer` configuration and the services previously provided by `FrameworkBundle` under `framework.html_sanitizer`
 

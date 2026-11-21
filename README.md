@@ -106,6 +106,49 @@ $sanitizer->sanitizeFor('section', $userInput); // Will sanitize as body
 // ...
 ```
 
+Auditable output
+----------------
+
+The string methods above remain the lightweight API. When a consumer needs to
+replay or audit a result, use `sanitizeWithEvidence()` (or
+`sanitizeForWithEvidence()` in a specific context):
+
+```php
+use Symfony\Component\HtmlSanitizer\Sanitization\SanitizationCancellation;
+
+$cancellation = new SanitizationCancellation();
+$report = $sanitizer->sanitizeWithEvidence($userInput, $cancellation);
+
+if (!$report->isComplete()) {
+    // The output is empty on purpose: no partially sanitized document is
+    // published. getFailure() contains the stage, source path, element,
+    // attribute, policy and sanitizer that failed.
+    throw new \RuntimeException($report->getFailureMessage());
+}
+
+$html = $report->getCommittedOutput();
+
+foreach ($report->getNodes() as $node) {
+    $node->getOutputIndex();  // pre-order index in the rendered output
+    $node->getOutputPath();   // e.g. "div[1] > a[1]"
+    $node->getInputPath();    // e.g. "div[1] > a[1]"
+    $node->getPolicy();       // "allow", "block" or "text"
+    $node->getAction();       // "keep", "block" or "encode"
+    $node->getModifications(); // attribute keep/drop/rewrite/force, element drop/block, text encode
+}
+```
+
+The output and evidence are committed together. `getGeneration()` identifies
+the complete transaction, while `getPolicyGeneration()` identifies the frozen
+configuration snapshot. `toArray()` / `fromArray()` persist and validate the
+same generation; a report whose output or node evidence was changed is
+rejected instead of being treated as sanitized output.
+
+Use `SanitizationCancellation::cancel()` to stop a transaction cooperatively.
+Cancellation and attribute-sanitizer failures produce a failed report with an
+empty output and an exact source location, so a retry starts from the original
+input rather than from a partially modified tree.
+
 Sponsor
 -------
 
