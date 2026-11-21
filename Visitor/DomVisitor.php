@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\HtmlSanitizer\Visitor;
 
+use Symfony\Component\HtmlSanitizer\Exception\AttributeSanitizationException;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerAction;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
 use Symfony\Component\HtmlSanitizer\TextSanitizer\StringSanitizer;
@@ -75,8 +76,15 @@ final class DomVisitor
         $this->defaultAction = $config->getDefaultAction();
     }
 
+    /**
+     * @throws AttributeSanitizationException When an attribute sanitizer fails
+     */
     public function visit(\Dom\Node|\DOMNode $domNode): ?NodeInterface
     {
+        // A visit is a transaction: the configuration and sanitizer registries
+        // frozen by the constructor are read-only, the source DOM is only read,
+        // and the sanitized document is built separately. Nothing from a failed
+        // visit is cached, so a retry starts again from the complete input document.
         $cursor = new Cursor(new DocumentNode());
         $this->visitChildren($domNode, $cursor);
 
@@ -164,6 +172,11 @@ final class DomVisitor
             return;
         }
 
+        // Stage all attribute values before adding any of them to the sanitized
+        // node. If a custom sanitizer fails, the node is left untouched and the
+        // whole visit is aborted instead of publishing a partially cleaned node.
+        $sanitizedAttributes = [];
+
         foreach ($domAttributes as $attribute) {
             $name = StringSanitizer::htmlLower($attribute->name);
 
@@ -179,14 +192,50 @@ final class DomVisitor
                 );
 
                 foreach ($attributeSanitizers as $sanitizer) {
-                    if (null === $sanitizedValue = $sanitizer->sanitizeAttribute($domNodeName, $name, $value, $this->config)) {
+                    try {
+                        $sanitizedValue = $sanitizer->sanitizeAttribute($domNodeName, $name, $value, $this->config);
+                    } catch (\Throwable $e) {
+                        throw new AttributeSanitizationException(
+                            $domNodeName,
+                            $name,
+                            $this->getNodePath($domNode),
+                            $sanitizer::class,
+                            $e,
+                        );
+                    }
+
+                    if (null === $sanitizedValue) {
                         continue 2;
                     }
                     $value = $sanitizedValue;
                 }
 
-                $node->setAttribute($name, $value);
+                // Keep the first declaration, like Node::setAttribute() does.
+                $sanitizedAttributes[$name] ??= $value;
             }
         }
+
+        foreach ($sanitizedAttributes as $name => $value) {
+            $node->setAttribute($name, $value);
+        }
+    }
+
+    private function getNodePath(\Dom\Node|\DOMNode $domNode): string
+    {
+        $path = [];
+
+        for ($node = $domNode; $node instanceof \Dom\Element || $node instanceof \DOMElement; $node = $node->parentNode) {
+            $position = 1;
+
+            for ($sibling = $node->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling) {
+                if ($sibling instanceof \Dom\Element || $sibling instanceof \DOMElement) {
+                    ++$position;
+                }
+            }
+
+            $path[] = \sprintf('%s[%d]', StringSanitizer::htmlLower($node->nodeName), $position);
+        }
+
+        return implode(' > ', array_reverse($path));
     }
 }

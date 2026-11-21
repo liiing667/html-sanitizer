@@ -88,8 +88,12 @@ final class HtmlSanitizer implements HtmlSanitizerInterface
             return '';
         }
 
-        // Visit the DOM tree and render the sanitized nodes
-        return $this->domVisitors[$context]->visit($parsed)?->render() ?? '';
+        // Visit the DOM tree and render the sanitized nodes. The visitor builds a
+        // separate tree and only exposes it once the whole visit has succeeded, so
+        // an exception cannot publish a partially sanitized document.
+        $sanitized = $this->domVisitors[$context]->visit($parsed);
+
+        return $sanitized?->render() ?? '';
     }
 
     private function isValidUtf8(string $html): bool

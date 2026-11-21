@@ -28,6 +28,8 @@ interface HtmlSanitizerInterface
      * will be injected in a "body" context, and therefore will drop tags only
      * allowed in the "head" element. To sanitize a string for injection
      * in the "head" element, use {@see HtmlSanitizerInterface::sanitizeFor()}.
+     *
+     * @throws \Symfony\Component\HtmlSanitizer\Exception\AttributeSanitizationException When an attribute sanitizer fails
      */
     public function sanitize(string $input): string;
 
@@ -37,6 +39,8 @@ interface HtmlSanitizerInterface
      * This method is context sensitive: by providing a parent element name
      * (body, head, title, ...), the sanitizer will adapt its rules to only
      * allow elements that are valid inside the given parent element.
+     *
+     * @throws \Symfony\Component\HtmlSanitizer\Exception\AttributeSanitizationException When an attribute sanitizer fails
      */
     public function sanitizeFor(string $element, string $input): string;
 }

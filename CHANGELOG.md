@@ -4,6 +4,7 @@ CHANGELOG
 8.2
 ---
 
+ * Make attribute sanitization transactional and report the node path and attribute when a custom attribute sanitizer fails
  * Resolve env vars at compile time in bundle options used to build the container
  * Add `HtmlSanitizerBundle`, which provides the `html_sanitizer` configuration and the services previously provided by `FrameworkBundle` under `framework.html_sanitizer`
 

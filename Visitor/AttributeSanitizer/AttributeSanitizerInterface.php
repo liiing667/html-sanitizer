@@ -36,6 +36,10 @@ interface AttributeSanitizerInterface
 
     /**
      * Returns the sanitized value of a given attribute for the given element.
+     *
+     * Throwing from this method aborts the whole sanitization pass. The exception
+     * is wrapped in {@see \Symfony\Component\HtmlSanitizer\Exception\AttributeSanitizationException}
+     * with the element name, attribute name and node path.
      */
     public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string;
 }
