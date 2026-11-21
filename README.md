@@ -106,6 +106,36 @@ $sanitizer->sanitizeFor('section', $userInput); // Will sanitize as body
 // ...
 ```
 
+Parsing reports
+---------------
+
+`sanitize()` and `sanitizeFor()` keep returning the sanitized string. When
+auditing or retrying a request, use the reporting variants to obtain the
+evidence attached to the same transaction:
+
+```php
+$report = $sanitizer->sanitizeWithReport($userInput);
+
+$report->getOutput();          // the sanitized string
+$report->isCommitted();        // false when parsing was rejected or cancelled
+$report->getStage();           // "committed", "truncated", "stale-document", ...
+$report->getInputDigest();     // SHA-256 of the exact input that was parsed
+$report->getDocumentId();      // frozen DOM document identity
+$report->getNodeCount();       // number of parsed DOM nodes
+$report->getParseReport();     // parser generation and parse-stage evidence
+
+$report = $sanitizer->sanitizeForWithReport('head', $userInput);
+```
+
+`HtmlSanitizer` implements the optional `ReportingHtmlSanitizerInterface`;
+the historical `HtmlSanitizerInterface` is unchanged.
+
+Each parse gets a new parser generation and a fresh DOM document. A parser
+cannot publish a node from an earlier request, and a truncated input that cuts
+through a tag or a quoted attribute is reported as non-committed instead of
+being rendered. When a parse or visit invariant fails, the thrown
+`ParsingException` exposes the failed stage and the same parse report.
+
 Sponsor
 -------
 
