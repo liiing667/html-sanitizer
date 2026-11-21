@@ -531,6 +531,79 @@ class HtmlSanitizerCustomTest extends TestCase
         );
     }
 
+    public function testPingOnLinksUsesTheLinkHostPolicy()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['href', 'ping'])
+            ->allowElement('area', ['href', 'ping'])
+            ->allowLinkHosts(['trusted.com'])
+            // A distinct, broader media allowlist must not be able to weaken the link policy
+            ->allowMediaHosts(['untrusted.com', 'trusted.com'])
+        ;
+
+        // A host rejected by the link policy cannot survive through the hyperlink-audit URL
+        $this->assertSame(
+            '<a href="https://trusted.com">Hello world</a>',
+            $this->sanitize($config, '<a href="https://trusted.com" ping="https://untrusted.com/track">Hello world</a>')
+        );
+
+        $this->assertSame(
+            '<area href="https://trusted.com" />',
+            $this->sanitize($config, '<area href="https://trusted.com" ping="https://untrusted.com/track">')
+        );
+
+        // A host accepted by the link policy is still retained
+        $this->assertSame(
+            '<a href="https://trusted.com" ping="https://trusted.com/track">Hello world</a>',
+            $this->sanitize($config, '<a href="https://trusted.com" ping="https://trusted.com/track">Hello world</a>')
+        );
+    }
+
+    public function testPingOnLinksUsesTheLinkSchemeAndRelativePolicies()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('a', ['ping'])
+            ->allowLinkSchemes(['https'])
+            ->allowMediaSchemes(['http', 'https'])
+        ;
+
+        // The link scheme policy applies, even though the media scheme policy would accept http
+        $this->assertSame(
+            '<a>Hello world</a>',
+            $this->sanitize($config, '<a ping="http://trusted.com/track">Hello world</a>')
+        );
+
+        // Relative URLs are governed by the link relative policy (disabled by default)
+        $this->assertSame(
+            '<a>Hello world</a>',
+            $this->sanitize($config, '<a ping="/track">Hello world</a>')
+        );
+
+        $this->assertSame(
+            '<a ping="/track">Hello world</a>',
+            $this->sanitize($config->allowRelativeLinks(), '<a ping="/track">Hello world</a>')
+        );
+    }
+
+    public function testLinkPolicyIsSharedAcrossRepeatedSanitizationCalls()
+    {
+        $sanitizer = new HtmlSanitizer(
+            (new HtmlSanitizerConfig())
+                ->allowElement('a', ['href', 'ping'])
+                ->allowLinkHosts(['trusted.com'])
+                ->allowMediaHosts(['untrusted.com'])
+        );
+
+        $input = '<a href="https://trusted.com" ping="https://untrusted.com/track">Hello world</a>';
+        $expected = '<a href="https://trusted.com">Hello world</a>';
+
+        // Reusing the same instance, including after a rejected request, must always apply
+        // the very same link policy to both the href and the text-link audit URL
+        $this->assertSame($expected, $sanitizer->sanitize($input));
+        $this->assertSame($expected, $sanitizer->sanitize($input));
+        $this->assertSame($expected, $sanitizer->sanitize($input));
+    }
+
     public function testAllowLinksRelative()
     {
         $config = (new HtmlSanitizerConfig())

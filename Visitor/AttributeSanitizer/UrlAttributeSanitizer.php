@@ -32,7 +32,10 @@ final class UrlAttributeSanitizer implements AttributeSanitizerInterface
 
     public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string
     {
-        if (\in_array($element, ['a', 'area'], true) || \in_array($attribute, ['action', 'formaction', 'cite'], true)) {
+        // The "ping" attribute holds the hyperlink-audit URLs the browser requests when
+        // an <a>/<area> link is activated: it belongs to the link activation request, just
+        // like the href, so it must obey the link policy rather than the looser media one.
+        if (\in_array($element, ['a', 'area'], true) || \in_array($attribute, ['ping', 'action', 'formaction', 'cite'], true)) {
             $allowedSchemes = $config->getAllowedLinkSchemes();
             $allowedHosts = $config->getAllowedLinkHosts();
             $allowRelative = $config->getAllowRelativeLinks();

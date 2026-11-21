@@ -4,6 +4,7 @@ CHANGELOG
 8.2
 ---
 
+ * Apply the link URL policy (allowed link schemes/hosts and relative links setting) to the `ping` hyperlink-audit attribute of `<a>` and `<area>` elements, instead of the media URL policy
  * Resolve env vars at compile time in bundle options used to build the container
  * Add `HtmlSanitizerBundle`, which provides the `html_sanitizer` configuration and the services previously provided by `FrameworkBundle` under `framework.html_sanitizer`
 
